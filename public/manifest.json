@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json.schemastore.org/web-manifest-combined",
+  "name": "Legis - Jurisprudence, Simplified.",
+  "short_name": "Legis",
+  "description": "Legis is an AI-driven legal intelligence platform designed for absolute accessibility and judicial clarity. Document scanner, case tracker, court directory with Hindi, voice, sign language, offline PWA.",
+  "theme_color": "#005bbf",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "start_url": "/",
+  "scope": "/",
+  "categories": ["legal","productivity","accessibility","government"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icon-72.png",
+      "sizes": "72x72",
+      "type": "image/png"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot1.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Document Scanner"
+    }
+  ],
+  "lang": "en-IN",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Scan Document",
+      "short_name": "Scan",
+      "description": "Capture and analyze legal document",
+      "url": "/scan",
+      "icons": [{"src": "/icon-scan.png","sizes":"96x96"}]
+    },
+    {
+      "name": "Case Status",
+      "short_name": "Status",
+      "description": "Check case status by CNR",
+      "url": "/status",
+      "icons": [{"src": "/icon-status.png","sizes":"96x96"}]
+    },
+    {
+      "name": "AI Legal Help",
+      "short_name": "Help",
+      "description": "Chat with AI legal assistant",
+      "url": "/help",
+      "icons": [{"src": "/icon-help.png","sizes":"96x96"}]
+    }
+  ],
+  "offline_message": "Legis works offline. Recent scans and directory available. Connect for real-time case status and AI chat."
+}
