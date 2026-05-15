@@ -1,19 +1,27 @@
- import express from "express";
-import multer from "multer";
+import express from "express";
 import cors from "cors";
-import helmet from "morgan";
+import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import morgan from "morgan";
+
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 import fetch from "node-fetch";
-import type { Database } from "./src/types/supabase.js";
 
 // Supabase Client Initialization
 const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_ANON_KEY || "";
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: { id: string; email?: string; phone?: string };
+    }
+  }
+}
 
 async function startServer() {
   const app = express();
@@ -23,8 +31,9 @@ async function startServer() {
   app.use(helmet());
   app.use(cors({
     origin: process.env.NODE_ENV === 'production' ? false : 'http://localhost:5173',
-    credentials: true
+    credentials: true,
   }));
+
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // limit each IP to 100 requests per windowMs
@@ -36,109 +45,191 @@ async function startServer() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
-  // Multer memory storage for file uploads
-  const storage = multer.memoryStorage();
-  const upload = multer({ storage });
+  app.use(morgan('dev'));
+
+  // Auth middleware (Supabase JWT)
+  // PHASE 1: ensures req.user exists for protected endpoints.
+  // Reads Authorization: Bearer <token>
+  // Uses supabase.auth.getUser(token)
+  // Attaches req.user = { id, email, phone }
+  const verifySupabaseJWT: express.RequestHandler = async (req, res, next) => {
+    try {
+      const token = req.headers.authorization?.split(' ')[1];
+      if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      if (error || !user) return res.status(401).json({ error: 'Unauthorized' });
+
+      req.user = {
+        id: user.id,
+        email: user.email ?? undefined,
+        phone: (user as any).phone ?? undefined,
+      };
+
+      return next();
+    } catch {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  };
 
   // API Routes
-  // Enhanced /api/interpret-document with multer and safety check
-  app.post("/api/interpret-document", upload.single('image'), async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image file provided' });
+  // PHASE 2: JSON payload scanner (auth protected)
+  app.post("/api/interpret-document", verifySupabaseJWT, async (req, res) => {
+    const { z } = ({} as { z?: any });
+
+    // Input validation (zero-trust style without adding new deps)
+    const parsedBody = req.body as { image?: unknown; mimeType?: unknown };
+    const image = typeof parsedBody?.image === 'string' ? parsedBody.image : undefined;
+    const mimeType = typeof parsedBody?.mimeType === 'string' ? parsedBody.mimeType : undefined;
+
+    if (!image) return res.status(400).json({ code: 'INVALID_INPUT', error: 'No image provided' });
+    // base64 guardrail length (rough)
+    if (image.length < 10 || image.length > 3_500_000) {
+      return res.status(400).json({ code: 'INVALID_INPUT', error: 'Invalid image payload size' });
     }
 
-    const imageBuffer = req.file.buffer.toString('base64');
-    const mimeType = req.file.mimetype || 'image/jpeg';
-    
+    // Robust parsing: find the first {...} block and parse
+    const jsonBlockFromText = (text: string) => {
+      const match = text.match(/\{[\s\S]*\}/);
+      return match?.[0] ?? null;
+    };
+
+    const validateAiJson = (rawText: string) => {
+      const block = jsonBlockFromText(rawText);
+      if (!block) return { ok: false };
+
+      try {
+        const parsed = JSON.parse(block) as any;
+
+        if (parsed?.error === 'NOT_LEGAL_DOC') return { ok: true, success: true, data: { error: 'NOT_LEGAL_DOC' } };
+
+        const allowedUrgency = new Set(['High', 'Medium', 'Low']);
+        const isValid =
+          typeof parsed?.documentType === 'string' &&
+          typeof parsed?.dateOfNotice === 'string' &&
+          typeof parsed?.courtAuthority === 'string' &&
+          Array.isArray(parsed?.sections) && parsed.sections.every((x: any) => typeof x === 'string') &&
+          typeof parsed?.summary === 'string' &&
+          Array.isArray(parsed?.nextSteps) && parsed.nextSteps.every((x: any) => typeof x === 'string') &&
+          typeof parsed?.urgency === 'string' && allowedUrgency.has(parsed.urgency);
+
+        if (!isValid) return { ok: false };
+        return { ok: true, success: true, data: parsed };
+      } catch {
+        return { ok: false };
+      }
+    };
+
+
     if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
+      return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
     }
+
+    const systemPrompt = `
+      STRICT INSTRUCTION: You are an Indian Legal Document Validator FIRST.
+      1. Check if this is a LEGAL DOCUMENT (Challan, Court Summons, Notice, FIR, Bail Order, Warrant).
+      2. If NOT a legal document (receipt, photo, meme, person, landscape, etc.), respond ONLY with:
+        {"error": "NOT_LEGAL_DOC"}
+      3. If it IS a legal document, extract in this EXACT JSON format:
+      {
+        "documentType": string,
+        "dateOfNotice": string,
+        "courtAuthority": string,
+        "sections": string[],
+        "summary": string,
+        "nextSteps": string[],
+        "urgency": "High" | "Medium" | "Low"
+      }
+    `;
+
+    const aiCallWithTimeout = async (fn: () => Promise<any>, ms = 25_000) => {
+      return Promise.race([
+        fn(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), ms)),
+      ]);
+    };
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-      const response = await ai.models.generateContent({
-        model: "gemini-1.5-flash-exp",
-        contents: [
-          {
-            parts: [
-              { 
-                text: `
-                  STRICT INSTRUCTION: You are an Indian Legal Document Validator FIRST.
-                  1. Check if this is a LEGAL DOCUMENT (Challan, Court Summons, Notice, FIR, Bail Order, Warrant).
-                  2. If NOT a legal document (receipt, photo, meme, person, landscape, etc.), respond ONLY with:
-                    {"error": "NOT_LEGAL_DOC"}
-                  3. If it IS a legal document, extract in this EXACT JSON format:
-                ` 
-              },
-              {
-                inlineData: {
-                  data: imageBuffer,
-                  mimeType
-                }
-              }
-            ]
-          }
-        ],
-        config: { 
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              error: { 
-                type: Type.STRING, 
-                description: "Use ONLY for non-legal documents: 'NOT_LEGAL_DOC'. Otherwise omit." 
-              },
-              documentType: { type: Type.STRING },
-              dateOfNotice: { type: Type.STRING },
-              courtAuthority: { type: Type.STRING },
-              sections: { type: Type.ARRAY, items: { type: Type.STRING } },
-              summary: { type: Type.STRING },
-              nextSteps: { type: Type.ARRAY, items: { type: Type.STRING } },
-              urgency: { type: Type.STRING, enum: ["High", "Medium", "Low"] }
-            }
-          }
-        }
-      });
+      const response = await aiCallWithTimeout(() =>
+        ai.models.generateContent({
+          model: 'gemini-1.5-flash-exp',
+          contents: [
+            {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: mimeType || 'image/jpeg',
+                    data: image,
+                  },
+                },
+                { text: systemPrompt },
+              ],
+            },
+          ],
+          config: {
+            responseMimeType: 'application/json',
+          },
+        }),
+      );
 
-      const result = JSON.parse(response.text);
-      
-      if (result.error === 'NOT_LEGAL_DOC') {
+      const rawText = typeof response.text === 'string' ? response.text : '';
+      const validated = validateAiJson(rawText);
+
+      if (!validated) {
+        return res.status(500).json({ code: 'AI_SCHEMA_MISMATCH', error: 'AI output schema mismatch' });
+      }
+
+      if (!validated.success) {
+        return res.status(500).json({ code: 'AI_SCHEMA_MISMATCH', error: 'AI output schema mismatch' });
+      }
+
+      const result = validated.data;
+
+      if ('error' in result && result.error === 'NOT_LEGAL_DOC') {
         return res.status(400).json({ code: 'NOT_LEGAL_DOC', message: 'Image is not a legal document' });
       }
-      
-      if (result.error) {
-        return res.status(400).json({ error: result.error });
-      }
-      
-      res.json(result);
-    } catch (error) {
-      console.error("Gemini Vision Error:", error);
-      res.status(500).json({ error: "Failed to analyze document. Please try another image." });
+
+      return res.json(result);
+    } catch (error: any) {
+      console.error('Gemini Vision Error:', error);
+      const code = error?.message === 'AI_TIMEOUT' ? 'AI_TIMEOUT' : 'AI_ERROR';
+      return res.status(500).json({ code, error: 'Failed to analyze document. Please try another image.' });
     }
   });
 
-// Updated save to legal_documents table with auth
-  app.post("/api/save-doc", async (req, res) => {
-    const { imageB64, analysis, cnr } = req.body;
-    const user = req.user;
 
+  // PHASE 2: save-doc JSON payload (auth protected)
+  app.post("/api/save-doc", verifySupabaseJWT, async (req, res) => {
+    const { image, mimeType, analysis, cnr } = req.body as {
+      image?: string;
+      mimeType?: string;
+      analysis: unknown;
+      cnr?: string;
+    };
+
+    const user = req.user;
     if (!user) return res.status(401).json({ error: 'Authentication required' });
+    if (!image) return res.status(400).json({ error: 'No image provided' });
 
     try {
       const fileName = `legal-doc-${user.id}-${Date.now()}.jpg`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
+
+      const { error: uploadError } = await supabase.storage
         .from('legal-documents')
-        .upload(fileName, Buffer.from(imageB64, 'base64'), {
-          contentType: 'image/jpeg',
-          upsert: true
+        .upload(fileName, Buffer.from(image, 'base64'), {
+          contentType: mimeType || 'image/jpeg',
+          upsert: true,
         });
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
+      const { data: publicUrlData } = supabase.storage
         .from('legal-documents')
         .getPublicUrl(fileName);
+
+      const publicUrl = publicUrlData.publicUrl;
 
       const { data: dbData, error: dbError } = await supabase
         .from('legal_documents')
@@ -146,32 +237,30 @@ async function startServer() {
           user_id: user.id,
           cnr: cnr || null,
           image_url: publicUrl,
-          analysis
+          analysis,
         })
         .select()
         .single();
 
       if (dbError) throw dbError;
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         url: publicUrl,
-        document: dbData 
+        document: dbData,
       });
     } catch (error: any) {
       console.error("Document Save Error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: error.message || "Failed to save document",
-        code: 'SAVE_FAILED'
+        code: 'SAVE_FAILED',
       });
     }
   });
 
-// Case status with 30s timeout + Supabase cache
+  // Case status with 30s timeout + Supabase cache (public)
   app.get("/api/case-status/:cnr", async (req, res) => {
     const { cnr } = req.params;
-    const user = req.user; // From auth middleware
-
     try {
       // Check cache first
       const { data: cached } = await supabase
@@ -185,13 +274,12 @@ async function startServer() {
         return res.json(cached.status);
       }
 
-      // Race scraper vs timeout
       const scraperUrl = process.env.SCRAPER_URL || "http://localhost:8000";
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
 
       const response = await fetch(`${scraperUrl}/scrape?cnr=${cnr}`, {
-        signal: controller.signal
+        signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
@@ -200,65 +288,75 @@ async function startServer() {
 
       const data = await response.json();
 
-      // Cache result for 24h
       await supabase.from('case_lookups').upsert({
         cnr,
         status: data,
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       });
 
       res.json(data);
     } catch (error: any) {
       console.error("Case Status Error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: 'Case lookup failed',
         fallback: {
           caseNo: cnr,
           status: "Lookup failed",
           nextHearing: "N/A",
           court: "eCourts India",
-          message: "Please try again or check connection"
-        }
+          message: "Please try again or check connection",
+        },
       });
     }
   });
 
-  // Legal chat with last 10 messages history
+  // PHASE 2 - Legal chat with last 10 messages history (public)
   app.post("/api/legal-chat", async (req, res) => {
-    const { message, history, lang = 'en' } = req.body;
+    const { message, history, lang = 'en' } = req.body as {
+      message: string;
+      history?: any[];
+      lang?: 'en' | 'hi';
+    };
+
     if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: "Key missing" });
 
     try {
-      const recentHistory = (history || []).slice(-10); // Last 10 messages
-      
+      const recentHistory = (history || []).slice(-10);
+
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      
+
       const response = await ai.models.generateContent({
         model: "gemini-1.5-flash",
         contents: [
-          ...(recentHistory).map((h: any) => ({ 
-            role: h.role === 'model' ? 'model' : 'user', 
-            parts: [{ text: h.text || h.content }] 
+          ...(recentHistory).map((h: any) => ({
+            role: h.role === 'model' ? 'model' : 'user',
+            parts: [{ text: h.text || h.content }],
           })),
-          { parts: [{ text: `
-            You are 'Nyaya-Sahayak', an Indian Legal Assistant. 
-            Respond in ${lang === 'hi' ? 'Hindi (हिंदी)' : 'English'}.
-            Provide helpful, accurate information about Indian law.
-            Include disclaimer: "I am AI, consult a lawyer for legal advice."
-            Keep answers concise, simple language.
-            Current conversation context: ${recentHistory.length > 0 ? 'ongoing' : 'new'}
-            User: ${message}
-          ` }] }
+          {
+            parts: [
+              {
+                text: `
+                  You are 'Nyaya-Sahayak', an Indian Legal Assistant.
+                  Respond in ${lang === 'hi' ? 'Hindi (हिंदी)' : 'English'}.
+                  Provide helpful, accurate information about Indian law.
+                  Include disclaimer: "I am AI, consult a lawyer for legal advice."
+                  Keep answers concise, simple language.
+                  Current conversation context: ${recentHistory.length > 0 ? 'ongoing' : 'new'}
+                  User: ${message}
+                `,
+              },
+            ],
+          },
         ],
-        generationConfig: {
+        config: {
           maxOutputTokens: 500,
-          temperature: 0.3
-        }
+          temperature: 0.3,
+        },
       });
 
-      res.json({ 
-        text: response.text(),
-        usage: response.usageMetadata
+      res.json({
+        text: response.text || '',
+        usage: response.usageMetadata,
       });
     } catch (error) {
       console.error("Chat Error:", error);
@@ -266,37 +364,106 @@ async function startServer() {
     }
   });
 
-  // NEW: Court Directory API with PostGIS distance sorting
+  // PHASE 3: Directory API alignment (public)
   app.get("/api/directory", async (req, res) => {
     try {
-      const lat = parseFloat(req.query.lat as string) || 28.6139; // Delhi default
-      const lng = parseFloat(req.query.lng as string) || 77.2090;
-      const radiusKm = parseInt(req.query.radius as string) || 50;
-      
-      const { data, error } = await supabase.rpc('find_nearby_courts', {
-        lat_point: lat,
-        lng_point: lng,
-        radius: radiusKm
-      });
+      const { q, lat, lng, radius = 10000 } = req.query as {
+        q?: string;
+        lat?: string;
+        lng?: string;
+        radius?: string | number;
+      };
 
+      if (lat && lng) {
+        const { data, error } = await supabase.rpc('find_nearby_courts', {
+          lat_point: +lat,
+          lng_point: +lng,
+          radius: +radius,
+        });
+        if (error) throw error;
+        const rows = (data || []) as any[];
+        return res.status(200).json(
+          rows.map((r) => ({
+            id: r.id,
+            name: r.name,
+            type: r.type,
+            address: r.address,
+            district: r.district,
+            lat: r.lat,
+            lng: r.lng,
+            phone: r.phone ?? undefined,
+          }))
+        );
+      }
+
+      if (q) {
+        const { data, error } = await supabase
+          .from('legal_directory')
+          .select('*')
+          .or(`name.ilike.%${q}%,address.ilike.%${q}%,district.ilike.%${q}%`)
+          .limit(20);
+
+        if (error) throw error;
+
+        const rows = (data || []) as any[];
+        return res.status(200).json(
+          rows.map((r) => ({
+            id: r.id,
+            name: r.name,
+            type: r.type,
+            address: r.address,
+            district: r.district,
+            lat: r.lat,
+            lng: r.lng,
+            phone: r.phone ?? undefined,
+          }))
+        );
+      }
+
+      const { data, error } = await supabase.from('legal_directory').select('*').limit(20);
       if (error) throw error;
 
-      res.json(data || []);
+      const rows = (data || []) as any[];
+      return res.status(200).json(
+        rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          type: r.type,
+          address: r.address,
+          district: r.district,
+          lat: r.lat,
+          lng: r.lng,
+          phone: r.phone ?? undefined,
+        }))
+      );
     } catch (error) {
       console.error('Directory Error:', error);
-      res.status(500).json({ error: 'Failed to fetch directory' });
+      return res.status(200).json([]);
     }
   });
 
-  // NEW: Supabase Phone Auth endpoints
+  // NEW: /api/scraper-status (public)
+  app.get('/api/scraper-status', async (req, res) => {
+    try {
+      const r = await fetch(`${process.env.SCRAPER_URL || 'http://localhost:8000'}/health`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      const data = (await r.json()) as Record<string, unknown>;
+      res.json({ status: 'online', ...data });
+    } catch {
+      res.json({ status: 'offline', uptime: 0, lastScrapeAt: null, totalRequests: 0, errorRate: 0 });
+    }
+  });
+
+  // Supabase Phone Auth endpoints (public)
   app.post("/api/auth/verify", async (req, res) => {
     try {
-      const { phone } = req.body;
+      const { phone } = req.body as { phone?: string };
       if (!phone) return res.status(400).json({ error: 'Phone required' });
 
       const { data, error } = await supabase.auth.signInWithOtp({
         phone: `+91${phone.replace(/^\+91/, '')}`,
-        options: { channel: 'sms' }
+        options: { channel: 'sms' },
       });
 
       if (error) throw error;
@@ -308,20 +475,17 @@ async function startServer() {
 
   app.post("/api/auth/confirm", async (req, res) => {
     try {
-      const { phone, token } = req.body;
+      const { phone, token } = req.body as { phone?: string; token?: string };
       if (!phone || !token) return res.status(400).json({ error: 'Phone and token required' });
 
       const { data, error } = await supabase.auth.verifyOtp({
         phone: `+91${phone.replace(/^\+91/, '')}`,
         token,
-        type: 'sms'
+        type: 'sms',
       });
 
       if (error) throw error;
-      res.json({ 
-        user: data.user,
-        session: data.session 
-      });
+      res.json({ user: data.user, session: data.session });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -348,3 +512,4 @@ async function startServer() {
 }
 
 startServer();
+

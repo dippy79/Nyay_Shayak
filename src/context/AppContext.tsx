@@ -78,6 +78,7 @@ interface AppContextType {
   toggleVoice: () => void;
   setLanguage: (lang: 'en' | 'hi') => void;
   setSignTerm: (term: string | null) => void;
+  toggleLangTerm?: () => void;
   speakText: (text: string, lang?: 'en' | 'hi') => void;
   detectLegalTerm: (text: string) => string | null;
 }
@@ -176,7 +177,7 @@ interface SignLanguageOverlayProps {
 }
 
 const SignLanguageOverlay: React.FC<SignLanguageOverlayProps> = ({ term, onClose, lang }) => (
-  <div className="fixed inset-0 z-[1000] bg-black/90 flex flex-col items-center justify-center p-8 animate-in fade-in-50 slide-in-from-bottom-4 duration-300">
+<div className="fixed inset-0 z-1000 bg-black/90 flex flex-col items-center justify-center p-8 animate-in fade-in-50 slide-in-from-bottom-4 duration-300">
     <button 
       onClick={onClose} 
       className="absolute top-8 right-8 text-white p-3 bg-white/20 backdrop-blur-sm rounded-full hover:bg-white/30 transition-all"
@@ -186,7 +187,7 @@ const SignLanguageOverlay: React.FC<SignLanguageOverlayProps> = ({ term, onClose
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
       </svg>
     </button>
-    <div className="w-64 h-64 bg-gradient-to-br from-primary/20 to-secondary/20 rounded-3xl flex items-center justify-center mb-8 border-4 border-white/30 shadow-2xl">
+<div className="w-64 h-64 bg-linear-to-br from-primary/20 to-secondary/20 rounded-3xl flex items-center justify-center mb-8 border-4 border-white/30 shadow-2xl">
       {/* Placeholder for sign language video/GIF - replace with actual asset */}
       <div className="w-24 h-24 bg-white/20 rounded-2xl flex items-center justify-center animate-pulse">
         <Hand className="w-16 h-16 text-primary opacity-80" strokeWidth={1} />

@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Phone, ShieldCheck, ArrowRight, RotateCcw, Timer, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
-import { useRouter } from 'react-router-dom';
-import type { Database } from '../../types/supabase'; // Assume types generated
+import { useNavigate } from 'react-router-dom';
 
 interface OTPFieldProps {
   value: string;
@@ -30,9 +29,10 @@ const OTPField: React.FC<OTPFieldProps> = ({ value, onChange, isActive, index })
     }}
     onKeyDown={(e) => {
       if (e.key === 'Backspace' && !value) {
-        (e.target as HTMLInputElement).previousElementSibling?.focus();
+        ((e.target as HTMLInputElement).previousElementSibling as HTMLInputElement | null)?.focus();
       }
     }}
+    data-otp-index={index + 1}
     maxLength={1}
     inputMode="numeric"
     pattern="[0-9]*"
@@ -40,22 +40,26 @@ const OTPField: React.FC<OTPFieldProps> = ({ value, onChange, isActive, index })
   />
 );
 
+const supabase = createClient(
+    import.meta.env.VITE_SUPABASE_URL as string,
+    import.meta.env.VITE_SUPABASE_ANON_KEY as string
+  );
+
 const LoginScreen: React.FC = () => {
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [otp, setOtp] = useState<string[]>(['', '', '', '', '', '']);
   const [resendTimer, setResendTimer] = useState(60);
   const [isResending, setIsResending] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
-  const supabase = createClientComponentClient<Database>();
-  const router = useRouter();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (step === 'otp' && resendTimer > 0) {
-      const timer = setTimeout(() => setResendTimer(t => t - 1), 1000);
+      const timer = setTimeout(() => setResendTimer((t) => t - 1), 1000);
       return () => clearTimeout(timer);
     }
   }, [step, resendTimer]);
@@ -72,9 +76,7 @@ const LoginScreen: React.FC = () => {
     try {
       const { error } = await supabase.auth.signInWithOtp({
         phone: `+91${phone}`,
-        options: {
-          channel: 'sms'
-        }
+        options: { channel: 'sms' },
       });
 
       if (error) throw error;
@@ -103,18 +105,16 @@ const LoginScreen: React.FC = () => {
       const { error } = await supabase.auth.verifyOtp({
         phone: `+91${phone}`,
         token: otpCode,
-        type: 'sms'
+        type: 'sms',
       });
 
       if (error) throw error;
 
       setMessage('Login successful! Redirecting...');
-      // Router to dashboard after delay
-      setTimeout(() => router.push('/'), 1500);
+      setTimeout(() => navigate('/'), 1500);
     } catch (err: any) {
       setError(err.message || 'Invalid OTP');
-      // Focus first field
-      document.querySelector('input')?.focus();
+      ((document.querySelector('input') as HTMLInputElement | null) as HTMLInputElement | null)?.focus();
     } finally {
       setLoading(false);
     }
@@ -125,13 +125,14 @@ const LoginScreen: React.FC = () => {
     newOtp[index] = value;
     setOtp(newOtp);
 
-    // Auto focus next
     if (value && index < 5) {
-      (document.querySelector(`input:nth-child(${index + 2})`) as HTMLInputElement)?.focus();
+      const el = document.querySelector(
+        `input[data-otp-index="${index + 2}"]`
+      ) as HTMLInputElement | null;
+      el?.focus();
     }
 
-    // Auto verify if complete
-    if (newOtp.every(v => v !== '') && index === 5) {
+    if (newOtp.every((v) => v !== '') && index === 5) {
       verifyOTP();
     }
   };
@@ -151,39 +152,25 @@ const LoginScreen: React.FC = () => {
   };
 
   return (
-    <div 
-      className="min-h-screen bg-gradient-to-br from-primary to-primary-container flex items-center justify-center p-6"
-      onKeyDown={handleKeyDown}
-    >
+    <div className="min-h-screen bg-linear-to-br from-primary to-primary-container flex items-center justify-center p-6" onKeyDown={handleKeyDown}>
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 p-8 space-y-8"
       >
-        {/* Header */}
         <div className="text-center space-y-4">
-          <div className="w-24 h-24 bg-gradient-to-br from-primary/20 to-secondary/20 rounded-3xl mx-auto flex items-center justify-center">
+          <div className="w-24 h-24 bg-linear-to-br from-primary/20 to-secondary/20 rounded-3xl mx-auto flex items-center justify-center">
             <ShieldCheck className="w-12 h-12 text-primary" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-primary-dark/80 bg-clip-text text-transparent">
-              Welcome to Legis
-            </h1>
-            <p className="text-secondary text-sm mt-2">
-              Secure login with your mobile number
-            </p>
+            <h1 className="text-3xl font-bold bg-linear-to-r from-primary to-primary-dark/80 bg-clip-text text-transparent">Welcome to Legis</h1>
+            <p className="text-secondary text-sm mt-2">Secure login with your mobile number</p>
           </div>
         </div>
 
-        {/* Phone Input */}
         <AnimatePresence mode="wait">
           {step === 'phone' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="space-y-6"
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-6">
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                   <Phone className="h-5 w-5 text-outline-variant" />
@@ -197,12 +184,13 @@ const LoginScreen: React.FC = () => {
                   maxLength={10}
                 />
               </div>
+
               <motion.button
                 onClick={sendOTP}
                 disabled={loading || phone.length !== 10}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="w-full py-4 px-6 bg-gradient-to-r from-primary to-primary-dark text-white font-bold rounded-2xl shadow-xl hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 text-lg transition-all"
+                className="w-full py-4 px-6 bg-linear-to-r from-primary to-primary-dark text-white font-bold rounded-2xl shadow-xl hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 text-lg transition-all"
               >
                 {loading ? (
                   <>
@@ -219,38 +207,28 @@ const LoginScreen: React.FC = () => {
             </motion.div>
           )}
 
-          {/* OTP Input */}
           {step === 'otp' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="space-y-6"
-            >
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-6">
               <div>
                 <h3 className="text-xl font-bold text-center mb-4">Enter 6-digit OTP</h3>
-                <p className="text-secondary text-sm text-center mb-6">
-                  Sent to +91{phone}
-                </p>
+                <p className="text-secondary text-sm text-center mb-6">Sent to +91{phone}</p>
+
                 <div className="flex justify-center">
                   {otp.map((digit, index) => (
                     <OTPField
                       key={index}
                       value={digit}
                       onChange={(val) => handleOtpChange(val, index)}
-                      isActive={otp[index] !== '' || otp.slice(0, index).every(d => d !== '')}
+                      isActive={otp[index] !== '' || otp.slice(0, index).every((d) => d !== '')}
                       index={index}
                     />
                   ))}
                 </div>
               </div>
 
-              {/* Resend Timer */}
               <div className="flex items-center justify-center gap-2 text-sm">
                 <Timer className="w-4 h-4 text-secondary" />
-                <span className="text-secondary font-mono">
-                  Resend in {resendTimer}s
-                </span>
+                <span className="text-secondary font-mono">Resend in {resendTimer}s</span>
                 {resendTimer === 0 && (
                   <motion.button
                     onClick={resendOTP}
@@ -266,10 +244,10 @@ const LoginScreen: React.FC = () => {
 
               <motion.button
                 onClick={verifyOTP}
-                disabled={loading || otp.some(d => d === '')}
+                disabled={loading || otp.some((d) => d === '')}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-green-600 text-white font-bold rounded-2xl shadow-xl hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 text-lg transition-all"
+                className="w-full py-4 px-6 bg-linear-to-r from-green-500 to-green-600 text-white font-bold rounded-2xl shadow-xl hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 text-lg transition-all"
               >
                 {loading ? (
                   <>
@@ -287,29 +265,19 @@ const LoginScreen: React.FC = () => {
           )}
         </AnimatePresence>
 
-        {/* Messages */}
         <AnimatePresence>
           {error && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="p-4 bg-destructive/10 border border-destructive/30 rounded-2xl text-destructive font-medium text-sm text-center"
-            >
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-4 bg-destructive/10 border border-destructive/30 rounded-2xl text-destructive font-medium text-sm text-center">
               {error}
             </motion.div>
           )}
           {message && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="p-4 bg-primary/10 border border-primary/30 rounded-2xl text-primary font-medium text-sm text-center"
-            >
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-4 bg-primary/10 border border-primary/30 rounded-2xl text-primary font-medium text-sm text-center">
               {message}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Back button */}
         {step === 'otp' && (
           <motion.button
             onClick={() => setStep('phone')}

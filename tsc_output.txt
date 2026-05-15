@@ -1,0 +1,11 @@
+server.ts(31,11): error TS2554: Expected 1-2 arguments, but got 0.
+server.ts(38,5): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Object literal may only specify known properties, and 'windowMs' does not exist in type 'FormatFn<IncomingMessage, ServerResponse<IncomingMessage>>'.
+src/App.tsx(560,1): error TS2322: Type 'string' is not assignable to type '{ role: "user" | "model"; text: string; }'.
+src/App.tsx(782,64): error TS2339: Property 'toggleLangTerm' does not exist on type 'AppContextType'.
+src/components/Auth/LoginScreen.tsx(5,45): error TS2307: Cannot find module '@supabase/auth-helpers-nextjs' or its corresponding type declarations.
+src/components/Auth/LoginScreen.tsx(6,15): error TS2300: Duplicate identifier 'Database'.
+src/components/Auth/LoginScreen.tsx(7,10): error TS2724: '"react-router-dom"' has no exported member named 'useRouter'. Did you mean 'useRoutes'?
+src/components/Auth/LoginScreen.tsx(8,15): error TS2300: Duplicate identifier 'Database'.
+src/components/Auth/LoginScreen.tsx(33,64): error TS2339: Property 'focus' does not exist on type 'Element'.

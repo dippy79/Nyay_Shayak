@@ -25,20 +25,40 @@ app.add_middleware(
 # Global session storage for captcha handling
 sessions: Dict[str, dict] = {}
 
+# PHASE 4: scraper health counters
+START_TIME = time.time()
+last_scrape_time = None
+request_count = 0
+error_count = 0
+
 @app.get("/health")
-async def health_check():
-    return {"status": "healthy", "scraper": "ready"}
+def health_check():
+    """Scraper health endpoint for admin polling."""
+    total = max(request_count, 1)
+    return {
+        "uptime": time.time() - START_TIME,
+        "lastScrapeAt": last_scrape_time,
+        "totalRequests": request_count,
+        "errorRate": round(error_count / total, 4),
+    }
+
 
 @app.get("/scrape")
 async def scrape_case(cnr: str):
     """Main case scrape endpoint - detects captcha, pauses for solve"""
+    global request_count, error_count, last_scrape_time
+    request_count += 1
+
     if not cnr or not re.match(r'^[A-Z]{2,4}-\d{4}-\d{6}-\d{4}$', cnr):
+        error_count += 1
         raise HTTPException(status_code=400, detail="Valid CNR format required (e.g., DLSC01-002315-2024)")
 
     session_id = f"scrape_{cnr}_{int(datetime.now().timestamp())}"
     
     try:
         async with async_playwright() as p:
+
+
             browser = await p.chromium.launch(headless=False, slow_mo=500)  # Visible for captcha
             context = await browser.new_context()
             page = await context.new_page()
@@ -86,19 +106,30 @@ async def scrape_case(cnr: str):
             }
             
     except asyncio.TimeoutError:
+        error_count += 1
         return {'status': 'timeout', 'error': 'Page load timeout', 'session_id': session_id}
     except Exception as e:
+        error_count += 1
         return {
             'status': 'error',
             'error': str(e),
             'session_id': session_id if session_id in locals() else None
         }
 
+
+
 @app.post("/solve-captcha/{session_id}")
 async def solve_captcha(session_id: str, captcha_solution: str):
     """Resume scraping after captcha solve"""
+    global request_count, error_count, last_scrape_time
+    request_count += 1
+    last_scrape_time = datetime.now().isoformat()
+
     if session_id not in sessions:
+        error_count += 1
         raise HTTPException(status_code=404, detail="Session not found or expired")
+
+
     
     session = sessions[session_id]
     page = session['page']
@@ -106,6 +137,7 @@ async def solve_captcha(session_id: str, captcha_solution: str):
     try:
         # Solve captcha (adjust selectors for actual eCourts captcha)
         await page.fill('input[name*="captcha"], #captcha, .captcha-input', captcha_solution)
+
         await page.click('input[type="submit"], button[type="submit"], #btnSubmit')
         await page.wait_for_load_state('networkidle', timeout=10000)
         
@@ -122,10 +154,14 @@ async def solve_captcha(session_id: str, captcha_solution: str):
         }
         
     except Exception as e:
+        global error_count, last_scrape_time
+        error_count += 1
+        last_scrape_time = datetime.now().isoformat()
         return {
             'status': 'solve_failed',
             'error': str(e)
         }
+
 
 async def extract_case_data(page):
     """Extract structured case data using common eCourts selectors"""

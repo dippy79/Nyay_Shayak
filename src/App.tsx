@@ -6,10 +6,10 @@
 import { Routes, Route, Link, useLocation } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Camera, Gavel, FileText, User, X, Languages, 
-  CheckCircle2, ArrowRight, RotateCcw, Mic, 
-  Contrast, Hand, Settings, Activity, Phone, 
+import {
+  Camera, Gavel, FileText, User, X, Languages,
+  CheckCircle2, ArrowRight, RotateCcw, Mic,
+  Contrast, Hand, Settings, Activity, Phone,
   MapPin, HelpCircle, Search, Bell, Info, AlertTriangle,
   ChevronRight, PlayCircle, Lock
 } from "lucide-react";
@@ -56,18 +56,18 @@ const translations = {
     align: "दस्तावेज़ को फ्रेम के भीतर रखें",
     capture: "दस्तावेज़ कैप्चर करें",
     retake: "फिर से लें",
-    confirm: "डेटा की पुष्टि करें",
+    confirm: "डेटा पुष्टि करें",
     extracted: "निकाली गई जानकारी",
     verified: "सत्यापित",
-    docType: "दस्तावेज़ का प्रकार",
+    docType: "दस्तावेज़ प्रकार",
     date: "नोटिस की तारीख",
     authority: "कोर्ट/प्राधिकरण",
-    signLang: "सांकेतिक भाषा समर्थन",
+    signLang: "सांकेतिक भाषा सहायता",
     voice: "आवाज मार्गदर्शन",
     contrast: "उच्च कंट्रास्ट",
     home: "होम",
-    profile: "प्रोफ़ाइल",
-    searchPlaceholder: "कोर्ट या पुलिस स्टेशनों की खोज करें...",
+    profile: "प्रोफाइल",
+    searchPlaceholder: "कोर्ट या पुलिस स्टेशन खोजें...",
     caseLookup: "केस नंबर दर्ज करें (जैसे CNR नंबर)",
     lookup: "स्थिति देखें"
   }
@@ -88,11 +88,11 @@ interface ExtractedInfo {
 // --- Components ---
 
 const SignLanguageOverlay = ({ term, onClose }: { term: string, onClose: () => void }) => (
-  <motion.div 
+  <motion.div
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
-    className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-6"
+    className="fixed inset-0 z-100 bg-black/90 flex flex-col items-center justify-center p-6"
   >
     <button onClick={onClose} className="absolute top-8 right-8 text-white p-2 bg-white/10 rounded-full">
       <X className="w-8 h-8" />
@@ -138,7 +138,7 @@ const BottomNav = () => {
   return (
     <nav className="bg-surface fixed bottom-0 left-0 w-full z-50 flex justify-around items-center pt-3 pb-6 px-4 border-t border-outline-variant/10 shadow-lg">
       {navItems.map((item) => (
-        <Link 
+        <Link
           key={item.path}
           to={item.path}
           className={cn(
@@ -177,7 +177,7 @@ const Dashboard = ({ lang }: { lang: Language }) => {
 
       <div className="grid grid-cols-2 gap-4">
         {actions.map((action) => (
-          <Link 
+          <Link
             key={action.title}
             to={action.path}
             className="bg-surface-container-lowest p-6 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col gap-4 border border-outline-variant/10"
@@ -222,8 +222,8 @@ const Scanner = ({ lang }: { lang: Language }) => {
   useEffect(() => {
     async function setupCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment' } 
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
         });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -245,17 +245,16 @@ const Scanner = ({ lang }: { lang: Language }) => {
 
   const captureAndInterpret = async () => {
     if (!videoRef.current || !canvasRef.current) return;
-    
+
     setIsProcessing(true);
     setIsScanning(true);
 
-    // Capture frame
     const canvas = canvasRef.current;
     const video = videoRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d')?.drawImage(video, 0, 0);
-    
+
     const base64Image = canvas.toDataURL('image/jpeg').split(',')[1];
     setCapturedImage(base64Image);
 
@@ -265,7 +264,7 @@ const Scanner = ({ lang }: { lang: Language }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: base64Image, mimeType: 'image/jpeg' })
       });
-      
+
       const data = await response.json();
       if (data.error) throw new Error(data.error);
       setExtractedInfo(data);
@@ -304,29 +303,27 @@ const Scanner = ({ lang }: { lang: Language }) => {
   return (
     <div className="relative h-screen bg-black overflow-hidden">
       <TopBar title="Smart Scanner" onLangSwitch={() => {}} />
-      
-      {/* Real Camera Feed */}
+
       <div className="absolute inset-0 flex items-center justify-center">
-        <video 
-          ref={videoRef} 
-          autoPlay 
-          playsInline 
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
           className="w-full h-full object-cover grayscale opacity-60"
         />
         <canvas ref={canvasRef} className="hidden" />
-        
-        {/* Scanning Frame */}
-        <div className="relative w-full max-w-md aspect-[3/4] px-4">
+
+        <div className="relative w-full max-w-md aspect-3/4 px-4">
           <div className="absolute inset-4 border-2 border-primary/40 rounded-xl overflow-hidden shadow-[0_0_0_100vmax_rgba(0,0,0,0.5)]">
             {(isScanning || isProcessing) && (
-              <motion.div 
+              <motion.div
                 initial={{ top: 0 }}
                 animate={{ top: "100%" }}
                 transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                className="absolute left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent shadow-[0_0_15px_rgba(26,115,232,0.8)] z-20"
+                className="absolute left-0 w-full h-1 bg-linear-to-r from-transparent via-primary to-transparent shadow-[0_0_15px_rgba(26,115,232,0.8)] z-20"
               />
             )}
-            
+
             <div className="absolute top-4 left-4 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg" />
             <div className="absolute top-4 right-4 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg" />
             <div className="absolute bottom-4 left-4 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg" />
@@ -338,9 +335,8 @@ const Scanner = ({ lang }: { lang: Language }) => {
         </div>
       </div>
 
-      {/* Floating Controls */}
       <div className="absolute right-6 top-24 flex flex-col gap-4 z-30">
-        <button 
+        <button
           onClick={() => setShowSignLang("Legal Help")}
           className="w-14 h-14 bg-white/80 backdrop-blur-xl rounded-full flex items-center justify-center shadow-2xl border border-primary/20 hover:scale-105 transition-transform"
         >
@@ -354,10 +350,9 @@ const Scanner = ({ lang }: { lang: Language }) => {
         </button>
       </div>
 
-      {/* Info Card */}
       <AnimatePresence>
         {extractedInfo && (
-          <motion.div 
+          <motion.div
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 100, opacity: 0 }}
@@ -385,11 +380,11 @@ const Scanner = ({ lang }: { lang: Language }) => {
                   <p className="font-headline font-bold text-on-surface text-sm">{extractedInfo.courtAuthority}</p>
                 </div>
               </div>
-              
+
               <div className="bg-primary/5 p-4 rounded-xl border border-primary/10">
                 <div className="flex justify-between items-center mb-2">
                   <h4 className="text-xs font-bold text-primary uppercase">AI Summary</h4>
-                  <button 
+                  <button
                     onClick={() => {
                       const keywords = ["Bail", "Summons", "Warrant", "Challan", "Court"];
                       const found = keywords.find(k => extractedInfo.summary.toLowerCase().includes(k.toLowerCase()));
@@ -418,11 +413,10 @@ const Scanner = ({ lang }: { lang: Language }) => {
         )}
       </AnimatePresence>
 
-      {/* Control Bar */}
-      <div className="absolute bottom-0 w-full h-32 bg-gradient-to-t from-black/80 to-transparent flex items-center justify-center px-8 pb-8 z-40">
+      <div className="absolute bottom-0 w-full h-32 bg-linear-to-t from-black/80 to-transparent flex items-center justify-center px-8 pb-8 z-40">
         <div className="w-full max-w-md flex items-center justify-between gap-4">
           {!extractedInfo ? (
-            <button 
+            <button
               onClick={captureAndInterpret}
               disabled={isProcessing}
               className="w-full py-4 rounded-xl bg-primary text-white font-headline font-bold flex items-center justify-center gap-2 shadow-xl disabled:opacity-50"
@@ -436,17 +430,17 @@ const Scanner = ({ lang }: { lang: Language }) => {
             </button>
           ) : (
             <>
-              <button 
+              <button
                 onClick={() => setExtractedInfo(null)}
                 className="flex-1 py-4 px-6 rounded-xl bg-white text-primary font-headline font-bold text-sm shadow-lg flex items-center justify-center gap-2"
               >
                 <RotateCcw className="w-4 h-4" />
                 {t.retake}
               </button>
-              <button 
+              <button
                 onClick={saveDocument}
                 disabled={isSaving}
-                className="flex-2 py-4 px-6 rounded-xl bg-gradient-to-br from-primary to-primary-container text-white font-headline font-bold text-sm shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+                className="flex-2 py-4 px-6 rounded-xl bg-linear-to-br from-primary to-primary-container text-white font-headline font-bold text-sm shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {isSaving ? <Activity className="w-4 h-4 animate-spin" /> : t.confirm}
                 <ArrowRight className="w-4 h-4" />
@@ -488,18 +482,18 @@ const CaseStatus = ({ lang }: { lang: Language }) => {
   return (
     <div className="pt-24 pb-32 px-6 min-h-screen bg-surface">
       <TopBar title={t.status} onLangSwitch={() => {}} />
-      
+
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-outline-variant/10 mb-6">
         <label className="block text-xs font-bold text-secondary uppercase mb-2">{t.caseLookup}</label>
         <div className="flex gap-2">
-          <input 
-            type="text" 
+          <input
+            type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="e.g. CNR-DEL-123"
             className="flex-1 bg-surface-container-low border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary"
           />
-          <button 
+          <button
             onClick={handleLookup}
             disabled={loading}
             className="bg-primary text-white p-3 rounded-xl shadow-lg disabled:opacity-50"
@@ -511,7 +505,7 @@ const CaseStatus = ({ lang }: { lang: Language }) => {
 
       <AnimatePresence>
         {result && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="space-y-4"
@@ -526,7 +520,7 @@ const CaseStatus = ({ lang }: { lang: Language }) => {
                   {result.status}
                 </span>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4 py-4 border-y border-outline-variant/5">
                 <div>
                   <p className="text-[10px] text-secondary uppercase font-bold">Next Hearing</p>
@@ -555,9 +549,11 @@ const CaseStatus = ({ lang }: { lang: Language }) => {
   );
 };
 
+type ChatMessage = { role: 'user' | 'model'; text: string };
+
 const LegalHelp = ({ lang }: { lang: Language }) => {
-  const [messages, setMessages] = useState<{ role: 'user' | 'model', text: string }[]>([
-"Namaste! I am Legis. How can I help you with legal information today? Jurisprudence, Simplified."
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { role: 'model', text: 'Namaste! I am Legis. How can I help you with legal information today? Jurisprudence, Simplified.' },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -578,14 +574,14 @@ const LegalHelp = ({ lang }: { lang: Language }) => {
       const response = await fetch('/api/legal-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: userMsg, 
-          history: messages.map(m => ({ role: m.role, parts: [{ text: m.text }] })),
-          lang: lang 
+        body: JSON.stringify({
+          message: userMsg,
+          history: messages.map(m => ({ role: m.role, text: m.text })),
+          lang
         })
       });
       const data = await response.json();
-      setMessages(prev => [...prev, { role: 'model', text: data.text }]);
+      setMessages(prev => [...prev, { role: 'model', text: String(data.text ?? '') }]);
     } catch (error) {
       setMessages(prev => [...prev, { role: 'model', text: "Sorry, I encountered an error. Please try again." }]);
     } finally {
@@ -596,7 +592,7 @@ const LegalHelp = ({ lang }: { lang: Language }) => {
   return (
     <div className="pt-24 pb-32 px-6 h-screen flex flex-col bg-surface">
       <TopBar title="AI Legal Help" onLangSwitch={() => {}} />
-      
+
       <div className="flex-1 overflow-y-auto space-y-4 pb-4">
         {messages.map((m, i) => (
           <div key={i} className={cn("flex", m.role === 'user' ? "justify-end" : "justify-start")}>
@@ -619,15 +615,15 @@ const LegalHelp = ({ lang }: { lang: Language }) => {
       </div>
 
       <div className="bg-white p-4 rounded-2xl shadow-lg border border-outline-variant/10 flex gap-2">
-        <input 
-          type="text" 
+        <input
+          type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
           placeholder="Ask about bail, summons, etc..."
           className="flex-1 border-none bg-surface-container-low rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary"
         />
-        <button 
+        <button
           onClick={handleSend}
           disabled={loading}
           className="bg-primary text-white p-3 rounded-xl shadow-lg disabled:opacity-50"
@@ -658,12 +654,12 @@ const FindCourt = ({ lang }: { lang: Language }) => {
       <TopBar title={t.find} onLangSwitch={() => {}} />
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-outline-variant/10 mb-6 flex items-center gap-3">
         <Search className="text-outline w-5 h-5" />
-        <input 
-          type="text" 
+        <input
+          type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={t.searchPlaceholder} 
-          className="flex-1 border-none bg-transparent focus:ring-0 text-sm" 
+          placeholder={t.searchPlaceholder}
+          className="flex-1 border-none bg-transparent focus:ring-0 text-sm"
         />
       </div>
 
@@ -779,19 +775,27 @@ const AdminPanel = () => {
 };
 
 export default function App() {
-  const { state, toggleHighContrast, toggleVoice, setLanguage, toggleLangTerm } = useAppContext();
+  const { state, toggleHighContrast, toggleVoice, setLanguage } = useAppContext();
+  const { lang } = { lang: state.language };
 
   return (
     <div className="min-h-screen bg-background text-on-background font-body">
       <Routes>
         <Route path="/login" element={<LoginScreen />} />
-        <Route path="/" element={<><Dashboard /><BottomNav /></>} />
-        <Route path="/scan" element={<Scanner />} />
-        <Route path="/status" element={<><CaseStatus /><BottomNav /></>} />
-        <Route path="/find" element={<><FindCourt /><BottomNav /></>} />
+        <Route path="/" element={<><Dashboard lang={lang} /><BottomNav /></>} />
+        <Route path="/scan" element={<Scanner lang={lang} />} />
+        <Route path="/status" element={<><CaseStatus lang={lang} /><BottomNav /></>} />
+        <Route path="/find" element={<><FindCourt lang={lang} /><BottomNav /></>} />
         <Route path="/admin" element={<AdminPanel />} />
-        <Route path="/help" element={<LegalHelp />} />
-        <Route path="/profile" element={<div className="pt-20 p-6 text-center"><ProfileSettings toggles={{ toggleHighContrast, toggleVoice, setLanguage }} /></div>} />
+        <Route path="/help" element={<LegalHelp lang={state.language} />} />
+        <Route
+          path="/profile"
+          element={
+            <div className="pt-20 p-6 text-center">
+              <ProfileSettings toggles={{ toggleHighContrast, toggleVoice, setLanguage }} />
+            </div>
+          }
+        />
       </Routes>
     </div>
   );
@@ -804,7 +808,7 @@ const ProfileSettings = ({ toggles }: any) => {
       <div>
         <h2 className="text-2xl font-bold mb-6">Accessibility</h2>
         <div className="space-y-4">
-          <button 
+          <button
             onClick={toggles.toggleHighContrast}
             className="w-full flex items-center justify-between p-4 border rounded-xl"
           >
@@ -813,7 +817,7 @@ const ProfileSettings = ({ toggles }: any) => {
               <span className={cn('absolute w-4 h-4 rounded-full top-0.5 transition-all', state.isHighContrast ? 'left-5 bg-white' : 'left-0.5 bg-gray-400')} />
             </span>
           </button>
-          <button 
+          <button
             onClick={toggles.toggleVoice}
             className="w-full flex items-center justify-between p-4 border rounded-xl"
           >
@@ -822,11 +826,11 @@ const ProfileSettings = ({ toggles }: any) => {
               <span className={cn('absolute w-4 h-4 rounded-full top-0.5 transition-all', state.isVoiceEnabled ? 'left-5 bg-white' : 'left-0.5 bg-gray-400')} />
             </span>
           </button>
-          <button 
+          <button
             onClick={() => toggles.setLanguage(state.language === 'en' ? 'hi' : 'en')}
             className="w-full flex items-center justify-between p-4 border rounded-xl"
           >
-            <span>{state.language === 'en' ? 'हिंदी' : 'English'}</span>
+            <span>{state.language === 'en' ? 'हिन्दी' : 'English'}</span>
             <Languages className="w-5 h-5" />
           </button>
         </div>
@@ -834,3 +838,4 @@ const ProfileSettings = ({ toggles }: any) => {
     </div>
   );
 };
+
