@@ -1,0 +1,13 @@
+{
+  "projectRoot": "../../",
+  "schedule": "0 2 * * 0",
+  "maxReportAgeDays": 30,
+  "largeFileMB": 5,
+  "excludeDirs": [
+    "node_modules", ".git", ".venv", 
+    "__pycache__", "dist", "build", ".vite"
+  ],
+  "autoDeleteCategories": [1, 6],
+  "reportDir": "./reports"
+}
+

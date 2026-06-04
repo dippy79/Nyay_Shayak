@@ -39,7 +39,7 @@ async function startServer() {
     max: 100, // limit each IP to 100 requests per windowMs
     standardHeaders: true,
     legacyHeaders: false,
-  });
+  } as any);
   app.use('/api/', limiter);
 
   app.use(express.json({ limit: '10mb' }));
@@ -82,11 +82,29 @@ async function startServer() {
     const image = typeof parsedBody?.image === 'string' ? parsedBody.image : undefined;
     const mimeType = typeof parsedBody?.mimeType === 'string' ? parsedBody.mimeType : undefined;
 
-    if (!image) return res.status(400).json({ code: 'INVALID_INPUT', error: 'No image provided' });
-    // base64 guardrail length (rough)
-    if (image.length < 10 || image.length > 3_500_000) {
-      return res.status(400).json({ code: 'INVALID_INPUT', error: 'Invalid image payload size' });
+    if (!image || typeof image !== 'string') {
+      return res.status(400).json({ error: 'INVALID_INPUT', message: 'image is required' });
     }
+
+    const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const mime = (mimeType || 'image/jpeg').toLowerCase();
+    if (!ALLOWED_TYPES.includes(mime)) {
+      return res.status(400).json({ error: 'INVALID_MIME', message: 'Only JPEG, PNG, WebP allowed' });
+    }
+
+    let imageBuffer: Buffer;
+    try {
+      imageBuffer = Buffer.from(image, 'base64');
+      if (imageBuffer.length < 100) throw new Error('Too small');
+    } catch {
+      return res.status(400).json({ error: 'INVALID_BASE64', message: 'Image data is corrupted' });
+    }
+
+    const MAX_BYTES = 5 * 1024 * 1024;
+    if (imageBuffer.length > MAX_BYTES) {
+      return res.status(400).json({ error: 'FILE_TOO_LARGE', message: 'Image must be under 5MB' });
+    }
+
 
     // Robust parsing: find the first {...} block and parse
     const jsonBlockFromText = (text: string) => {
@@ -260,6 +278,7 @@ async function startServer() {
 
   // Case status with 30s timeout + Supabase cache (public)
   app.get("/api/case-status/:cnr", async (req, res) => {
+
     const { cnr } = req.params;
     try {
       // Check cache first
@@ -507,8 +526,9 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.info(`[Legis] Server running on http://localhost:${PORT}`);
   });
+
 }
 
 startServer();

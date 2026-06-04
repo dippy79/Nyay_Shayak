@@ -8,11 +8,22 @@ import base64
 import re
 from datetime import datetime
 import os
+import time
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
-app = FastAPI(title="Nyaya-Sahayak Scraper", version="1.0.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(cleanup_expired_sessions())
+    yield
+    task.cancel()
+
+app = FastAPI(title="Nyaya-Sahayak Scraper", version="1.0.0", lifespan=lifespan)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,6 +35,40 @@ app.add_middleware(
 
 # Global session storage for captcha handling
 sessions: Dict[str, dict] = {}
+
+SESSION_TTL_SECONDS = 300  # 5 minutes
+
+async def cleanup_expired_sessions():
+    while True:
+        await asyncio.sleep(60)
+        now = time.time()
+        expired = [
+            sid for sid, s in list(sessions.items())
+            if now - s.get('timestamp', now) > SESSION_TTL_SECONDS
+        ]
+        for sid in expired:
+            try:
+                sess = sessions.pop(sid, None)
+                if sess:
+                    try:
+                        if sess.get('page'):
+                            await sess['page'].close()
+                    except Exception:
+                        pass
+                    try:
+                        if sess.get('context'):
+                            await sess['context'].close()
+                    except Exception:
+                        pass
+                    try:
+                        if sess.get('browser'):
+                            await sess['browser'].close()
+                    except Exception:
+                        pass
+                    print(f"[GC] Expired session {sid} cleaned up")
+            except Exception as e:
+                print(f"[GC] Error cleaning session {sid}: {e}")
+
 
 # PHASE 4: scraper health counters
 START_TIME = time.time()
@@ -43,15 +88,24 @@ def health_check():
     }
 
 
+CNR_PATTERN = re.compile(r'^[A-Z]{2,6}\d{0,2}-?\d{6}-?\d{4}$', re.IGNORECASE)
+
 @app.get("/scrape")
 async def scrape_case(cnr: str):
     """Main case scrape endpoint - detects captcha, pauses for solve"""
     global request_count, error_count, last_scrape_time
+
     request_count += 1
 
-    if not cnr or not re.match(r'^[A-Z]{2,4}-\d{4}-\d{6}-\d{4}$', cnr):
+    if not cnr or not CNR_PATTERN.match(cnr):
+
         error_count += 1
-        raise HTTPException(status_code=400, detail="Valid CNR format required (e.g., DLSC01-002315-2024)")
+        return {
+            "status": "error",
+            "message": "Invalid CNR format",
+            "cnr": cnr,
+        }
+
 
     session_id = f"scrape_{cnr}_{int(datetime.now().timestamp())}"
     
@@ -86,8 +140,9 @@ async def scrape_case(cnr: str):
                     'page': page,
                     'cnr': cnr,
                     'screenshot': screenshot_b64,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': time.time()
                 }
+
                 
                 return {
                     'status': 'captcha_detected',
@@ -154,8 +209,8 @@ async def solve_captcha(session_id: str, captcha_solution: str):
         }
         
     except Exception as e:
-        global error_count, last_scrape_time
         error_count += 1
+
         last_scrape_time = datetime.now().isoformat()
         return {
             'status': 'solve_failed',

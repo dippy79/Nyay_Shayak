@@ -1,0 +1,23 @@
+{
+  "name": "legis-gc",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "scan": "ts-node gc.ts --dry-run --report",
+    "clean": "ts-node gc.ts --auto --report",
+    "schedule": "ts-node gc.ts --schedule"
+  },
+  "dependencies": {
+    "glob": "^10.0.0",
+    "node-cron": "^3.0.0",
+    "chalk": "^5.0.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.0.0",
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "@types/node-cron": "^3.0.0",
+    "@types/glob": "^8.0.0"
+  }
+}
+

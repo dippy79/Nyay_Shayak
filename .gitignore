@@ -1,8 +1,30 @@
+# Node
 node_modules/
-build/
+
+# Build outputs
 dist/
-coverage/
-.DS_Store
-*.log
-.env*
+apps/*/dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env files
+.env
+.env.*
 !.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# Supabase
+supabase/.temp/
+
+# Misc
+coverage/
+

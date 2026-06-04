@@ -1,9 +1,9 @@
+/// <reference types="vite/client" />
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Phone, ShieldCheck, ArrowRight, RotateCcw, Timer, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../../types/supabase';
 import { useNavigate } from 'react-router-dom';
 
 interface OTPFieldProps {
@@ -41,8 +41,8 @@ const OTPField: React.FC<OTPFieldProps> = ({ value, onChange, isActive, index })
 );
 
 const supabase = createClient(
-    import.meta.env.VITE_SUPABASE_URL as string,
-    import.meta.env.VITE_SUPABASE_ANON_KEY as string
+    (import.meta.env as any).VITE_SUPABASE_URL as string,
+    (import.meta.env as any).VITE_SUPABASE_ANON_KEY as string
   );
 
 const LoginScreen: React.FC = () => {
