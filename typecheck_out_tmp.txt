@@ -1,0 +1,8 @@
+
+> typecheck
+> npm -w apps/frontend run lint
+
+
+> legis-frontend@0.0.0 lint
+> tsc --noEmit
+

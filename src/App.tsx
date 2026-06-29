@@ -16,6 +16,16 @@ import {
 import { cn } from "@/lib/utils";
 import { useAppContext } from "@/context/AppContext";
 import LoginScreen from "@/components/Auth/LoginScreen";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { apiFetch } from "@/lib/apiClient";
+import FindLawyer from "@/pages/FindLawyer";
+import VideoCall from "@/pages/VideoCall";
+import PaymentPage from "@/pages/PaymentPage";
+import LawyerProfile from "@/pages/LawyerProfile";
+import AccessibilityBar from "@/components/AccessibilityBar";
+
+
 
 // --- Localization ---
 const translations = {
@@ -259,18 +269,19 @@ const Scanner = ({ lang }: { lang: Language }) => {
     setCapturedImage(base64Image);
 
     try {
-      const response = await fetch('/api/interpret-document', {
+      const response: any = await apiFetch('/api/interpret-document', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: base64Image, mimeType: 'image/jpeg' })
       });
 
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      const data = response as any;
+      if (data?.error) throw new Error(data.error);
       setExtractedInfo(data);
-    } catch (error: any) {
-      console.error("Interpretation failed:", error);
-      alert(error.message || "Failed to analyze document. Please try again.");
+    } catch (error) {
+      const err = error as any;
+      console.error("Interpretation failed:", err);
+      alert(err?.message || "Failed to analyze document. Please try again.");
     } finally {
       setIsProcessing(false);
       setIsScanning(false);
@@ -281,12 +292,13 @@ const Scanner = ({ lang }: { lang: Language }) => {
     if (!capturedImage || !extractedInfo) return;
     setIsSaving(true);
     try {
-      const response = await fetch('/api/save-doc', {
+      const response = await apiFetch('/api/save-doc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: capturedImage, analysis: extractedInfo })
-      });
-      const data = await response.json();
+      }) as any;
+      // apiFetch may return a raw Response or already-parsed JSON depending on implementation.
+      const data = response && typeof response.json === 'function' ? await response.json() : response;
       if (data.success) {
         alert("Document saved successfully to Supabase!");
         setExtractedInfo(null);
@@ -401,7 +413,7 @@ const Scanner = ({ lang }: { lang: Language }) => {
 
               <div className="space-y-2">
                 <h4 className="text-xs font-bold text-secondary uppercase">Next Steps</h4>
-                {extractedInfo.nextSteps.map((step, i) => (
+                {extractedInfo.nextSteps.map((step, i: number) => (
                   <div key={i} className="flex gap-2 items-start text-sm">
                     <div className="w-1.5 h-1.5 bg-primary rounded-full mt-1.5 shrink-0" />
                     <p>{step}</p>
@@ -459,21 +471,35 @@ const Scanner = ({ lang }: { lang: Language }) => {
   );
 };
 
+const CNR_PATTERN = /^[A-Z]{2,6}\d{0,2}-?\d{6}-?\d{4}$/i;
+
 const CaseStatus = ({ lang }: { lang: Language }) => {
   const t = translations[lang];
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleLookup = async () => {
-    if (!query) return;
+    const cnr = query.trim();
+    if (!cnr) return;
+
+    if (!CNR_PATTERN.test(cnr)) {
+      setError("Invalid CNR format. Example: DLSC01-002315-2024");
+      setResult(null);
+      return;
+    }
+
     setLoading(true);
+    setError(null);
+    setResult(null);
     try {
-      const response = await fetch(`/api/case-status/${query}`);
-      const data = await response.json();
+      const data = await apiFetch<Record<string, string>>(`/api/case-status/${encodeURIComponent(cnr)}`);
       setResult(data);
-    } catch (error) {
-      console.error("Lookup failed:", error);
+    } catch (err) {
+      const msg = (err as Error)?.message || "Lookup failed. Please try again.";
+      setError(msg);
+      console.error("Lookup failed:", err);
     } finally {
       setLoading(false);
     }
@@ -501,6 +527,12 @@ const CaseStatus = ({ lang }: { lang: Language }) => {
             {loading ? <Activity className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
           </button>
         </div>
+        {error && (
+          <p className="mt-3 text-sm text-destructive flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            {error}
+          </p>
+        )}
       </div>
 
       <AnimatePresence>
@@ -571,17 +603,22 @@ const LegalHelp = ({ lang }: { lang: Language }) => {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/legal-chat', {
+      // Exclude welcome message and only send prior user/model turns to the API
+      const historyForApi = messages
+        .slice(1)
+        .map(m => ({ role: m.role, text: m.text }));
+
+      const response = await apiFetch<{ reply?: string; text?: string }>('/api/legal-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userMsg,
-          history: messages.map(m => ({ role: m.role, text: m.text })),
+          history: historyForApi,
           lang
         })
       });
-      const data = await response.json();
-      setMessages(prev => [...prev, { role: 'model', text: String(data.text ?? '') }]);
+      const reply = response?.reply ?? response?.text ?? 'No response received.';
+      setMessages(prev => [...prev, { role: 'model', text: reply }]);
     } catch (error) {
       setMessages(prev => [...prev, { role: 'model', text: "Sorry, I encountered an error. Please try again." }]);
     } finally {
@@ -639,12 +676,25 @@ const FindCourt = ({ lang }: { lang: Language }) => {
   const t = translations[lang];
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      fetch(`/api/directory?q=${query}`)
-        .then(res => res.json())
-        .then(setResults);
+    const delayDebounceFn = setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const value = await apiFetch<{ results?: unknown[] }>(
+          `/api/directory?q=${encodeURIComponent(query)}`
+        );
+        const list = Array.isArray(value?.results) ? value.results : [];
+        setResults(list);
+      } catch (err) {
+        setResults([]);
+        setError((err as Error)?.message || 'Search failed');
+      } finally {
+        setLoading(false);
+      }
     }, 300);
     return () => clearTimeout(delayDebounceFn);
   }, [query]);
@@ -663,20 +713,40 @@ const FindCourt = ({ lang }: { lang: Language }) => {
         />
       </div>
 
+      {loading && (
+        <div className="flex justify-center py-8">
+          <Activity className="w-6 h-6 animate-spin text-primary" />
+        </div>
+      )}
+
+      {error && !loading && (
+        <p className="text-sm text-destructive text-center py-4">{error}</p>
+      )}
+
+      {!loading && !error && results.length === 0 && (
+        <p className="text-sm text-secondary text-center py-8">No courts found. Try a different search.</p>
+      )}
+
       <div className="space-y-4">
-        {results.map((loc) => (
-          <div key={loc.id} className="bg-white p-4 rounded-2xl shadow-sm border border-outline-variant/10 flex items-center justify-between">
+{(Array.isArray(results) ? results : []).map((loc: any, idx) => (
+          <div key={loc.id ?? `${loc.name}-${idx}`} className="bg-white p-4 rounded-2xl shadow-sm border border-outline-variant/10 flex items-center justify-between">
             <div className="flex gap-4 items-center">
               <div className="w-10 h-10 bg-surface-container-low rounded-xl flex items-center justify-center">
-                {loc.type === 'Court' ? <Gavel className="w-5 h-5 text-primary" /> : <Phone className="w-5 h-5 text-secondary" />}
+                {loc.type === 'Court' || loc.type === 'District' || loc.type === 'High Court'
+                  ? <Gavel className="w-5 h-5 text-primary" />
+                  : <Phone className="w-5 h-5 text-secondary" />}
               </div>
               <div>
                 <h4 className="font-bold text-sm">{loc.name}</h4>
-                <p className="text-xs text-secondary">{loc.type} • {loc.location}</p>
-                <p className="text-[10px] text-primary font-bold mt-1">{loc.phone}</p>
+                <p className="text-xs text-secondary">
+                  {loc.type} • {loc.city ?? loc.district ?? loc.state ?? loc.address ?? '—'}
+                </p>
+                {loc.phone && (
+                  <p className="text-[10px] text-primary font-bold mt-1">{loc.phone}</p>
+                )}
               </div>
             </div>
-            <button className="p-2 bg-primary/5 rounded-lg">
+            <button className="p-2 bg-primary/5 rounded-lg" aria-label="View on map">
               <MapPin className="w-5 h-5 text-primary" />
             </button>
           </div>
@@ -690,9 +760,7 @@ const AdminPanel = () => {
   const [stats, setStats] = useState<any>(null);
 
   useEffect(() => {
-    fetch("/api/scraper-status")
-      .then(res => res.json())
-      .then(setStats);
+    apiFetch("/api/scraper-status").then((value: any) => setStats(value));
   }, []);
 
   return (
@@ -778,26 +846,100 @@ export default function App() {
   const { state, toggleHighContrast, toggleVoice, setLanguage } = useAppContext();
   const { lang } = { lang: state.language };
 
+  const fontSizeClass = {
+    normal: 'text-base',
+    large: 'text-lg',
+    xlarge: 'text-xl'
+  }[state.fontSize];
+
   return (
-    <div className="min-h-screen bg-background text-on-background font-body">
-      <Routes>
-        <Route path="/login" element={<LoginScreen />} />
-        <Route path="/" element={<><Dashboard lang={lang} /><BottomNav /></>} />
-        <Route path="/scan" element={<Scanner lang={lang} />} />
-        <Route path="/status" element={<><CaseStatus lang={lang} /><BottomNav /></>} />
-        <Route path="/find" element={<><FindCourt lang={lang} /><BottomNav /></>} />
-        <Route path="/admin" element={<AdminPanel />} />
-        <Route path="/help" element={<LegalHelp lang={state.language} />} />
-        <Route
-          path="/profile"
-          element={
-            <div className="pt-20 p-6 text-center">
-              <ProfileSettings toggles={{ toggleHighContrast, toggleVoice, setLanguage }} />
-            </div>
-          }
-        />
-      </Routes>
-    </div>
+    <ErrorBoundary fallbackMessage="ऐप लोड नहीं हो पा रहा है। कृपया रिफ्रेश करें।">
+      <OfflineBanner />
+      <div className={`min-h-screen bg-background text-on-background font-body ${fontSizeClass} ${state.isReducedMotion ? 'motion-reduce' : ''}`}>
+        <Routes>
+
+          <Route path="/login" element={<LoginScreen />} />
+
+          <Route
+            path="/"
+            element={
+              <>
+                <ErrorBoundary fallbackMessage="ऐप लोड नहीं हो पा रहा है। कृपया रिफ्रेश करें।">
+                  <Dashboard lang={lang} />
+                </ErrorBoundary>
+                <BottomNav />
+              </>
+            }
+          />
+
+
+          <Route
+            path="/scan"
+            element={
+              <ErrorBoundary fallbackMessage="दस्तावेज़ स्कैनर में समस्या। कृपया दोबारा कोशिश करें।">
+                <Scanner lang={lang} />
+              </ErrorBoundary>
+            }
+          />
+
+
+          <Route
+            path="/status"
+            element={
+              <ErrorBoundary fallbackMessage="केस स्थिति लोड नहीं हो सकी। CNR जांचें और दोबारा कोशिश करें।">
+                <>
+                  <CaseStatus lang={lang} />
+                  <BottomNav />
+                </>
+              </ErrorBoundary>
+            }
+          />
+
+
+          <Route
+            path="/find"
+            element={
+              <>
+                <ErrorBoundary fallbackMessage="कोर्ट खोजने में समस्या आई। कृपया पुनः प्रयास करें।">
+                  <FindCourt lang={lang} />
+                </ErrorBoundary>
+                <BottomNav />
+              </>
+            }
+          />
+
+          <Route path="/admin" element={<AdminPanel />} />
+
+          <Route path="/lawyers" element={<FindLawyer />} />
+
+          <Route path="/lawyers/:id" element={<LawyerProfile />} />
+
+          <Route path="/call/:consultationId" element={<VideoCall />} />
+
+          <Route path="/payment/:consultationId" element={<PaymentPage />} />
+
+          <Route
+            path="/help"
+            element={
+              <ErrorBoundary fallbackMessage="AI सहायक अभी उपलब्ध नहीं है। कृपया कुछ देर बाद कोशिश करें।">
+                <LegalHelp lang={state.language} />
+              </ErrorBoundary>
+            }
+          />
+
+
+          <Route
+            path="/profile"
+            element={
+              <div className="pt-20 p-6 text-center">
+                <ProfileSettings toggles={{ toggleHighContrast, toggleVoice, setLanguage }} />
+              </div>
+            }
+          />
+        </Routes>
+      </div>
+      <AccessibilityBar />
+    </ErrorBoundary>
   );
 }
 

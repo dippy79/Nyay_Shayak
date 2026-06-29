@@ -1,7 +1,0 @@
-{
-  "name": "Nyaya-Sahayak",
-  "description": "Indian Legal Assistant with AI document interpretation, multilingual support, and accessibility features.",
-  "requestFramePermissions": [
-    "camera"
-  ]
-}

@@ -7,6 +7,11 @@
     "dev": "tsx ../../server.ts",
     "build": "echo 'backend uses server.ts runtime'",
     "lint": "echo 'skipped'"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "express-rate-limit": "^8.5.2",
+    "web-push": "^3.6.7",
+    "zod": "^4.4.3"
   }
 }
-

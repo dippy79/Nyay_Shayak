@@ -1,3 +1,0 @@
-src/components/Auth/LoginScreen.tsx(33,64): error TS2339: Property 'focus' does not exist on type 'Element'.
-src/components/Auth/LoginScreen.tsx(53,36): error TS2339: Property 'env' does not exist on type 'ImportMeta'.
-src/components/Auth/LoginScreen.tsx(54,40): error TS2339: Property 'env' does not exist on type 'ImportMeta'.
