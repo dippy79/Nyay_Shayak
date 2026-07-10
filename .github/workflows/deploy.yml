@@ -24,7 +24,7 @@ jobs:
         run: npm run typecheck
 
       - name: Test
-        run: python -m pytest tests/test_crawler.py -v
+        run: python -m tests/test_crawler.py -v
 
       - name: Build
         run: npm run build
